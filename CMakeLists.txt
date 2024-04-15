@@ -566,7 +566,7 @@ if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID STREQUAL "Clang")
         check_add_cc_flag("-Wunused-command-line-argument") # Warning for command line args instead of error
     endif()
 
-    check_add_cc_flag("-Wno-static-in-inline") # Clang doesn't like the use of static inline methods inside static inline methods
+    #check_add_cc_flag("-Wno-static-in-inline") # Clang doesn't like the use of static inline methods inside static inline methods
     check_add_cc_flag("-Wno-overlength-strings") # May happen in the nodeset compiler when complex values are directly encoded
     check_add_cc_flag("-Wno-unused-parameter") # some methods may require unused arguments to cast to a method pointer
     check_add_cc_flag("-Wno-maybe-uninitialized") # too many false positives
@@ -1390,7 +1390,7 @@ target_link_libraries(open62541 ${open62541_LIBRARIES})
 ##########################
 
 # always include, builds with make doc
-add_subdirectory(doc)
+#add_subdirectory(doc)
 
 if(UA_BUILD_EXAMPLES)
     if(UA_ENABLE_AMALGAMATION)
