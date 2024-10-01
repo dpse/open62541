@@ -106,6 +106,7 @@ typedef SSIZE_T ssize_t;
 /*********************/
 
 #include <arpa/inet.h>
+#include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <netdb.h>
 #include <sys/ioctl.h>
@@ -114,12 +115,17 @@ typedef SSIZE_T ssize_t;
 #include <poll.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <ifaddrs.h>
 
 #if defined(__unix__) || (defined(__APPLE__) && defined(__MACH__))
 # include <sys/param.h>
 # if defined(BSD)
 #  include <sys/socket.h>
 # endif
+#endif
+
+#if defined (__APPLE__)
+typedef int SOCKET;
 #endif
 
 #define UA_IPV6 1
@@ -146,9 +152,7 @@ typedef SSIZE_T ssize_t;
 #define UA_getsockopt getsockopt
 #define UA_setsockopt setsockopt
 #define UA_inet_pton inet_pton
-#if UA_IPV6
-# define UA_if_nametoindex if_nametoindex
-#endif
+#define UA_if_nametoindex if_nametoindex
 
 #define UA_clean_errno(STR_FUN) \
     (errno == 0 ? (char*) "None" : (STR_FUN)(errno))
@@ -243,7 +247,7 @@ typedef struct {
 
     /* Flag determining whether the eventloop is currently within the
      * "run" method */
-    UA_Boolean executing;
+    volatile UA_Boolean executing;
 
 #if defined(UA_ARCHITECTURE_POSIX) && !defined(__APPLE__) && !defined(__MACH__)
     /* Clocks for the eventloop's time domain */
@@ -257,6 +261,9 @@ typedef struct {
     UA_RegisteredFD **fds;
     size_t fdsSize;
 #endif
+
+    /* Self-pipe to cancel blocking wait */
+    UA_FD selfpipe[2]; /* 0: read, 1: write */
 
 #if UA_MULTITHREADING >= 100
     UA_Lock elMutex;
@@ -308,6 +315,22 @@ UA_EventLoopPOSIX_setNoSigPipe(UA_FD sockfd);
 /* Enables sharing of the same listening address on different sockets */
 UA_StatusCode
 UA_EventLoopPOSIX_setReusable(UA_FD sockfd);
+
+/* Windows has no pipes. Use a local TCP connection for the self-pipe trick.
+ * https://stackoverflow.com/a/3333565 */
+#if defined(_WIN32) || defined(__APPLE__)
+int UA_EventLoopPOSIX_pipe(SOCKET fds[2]);
+#else
+# define UA_EventLoopPOSIX_pipe(fds) pipe2(fds, O_NONBLOCK)
+#endif
+
+/* Cancel the current _run by sending to the self-pipe */
+void
+UA_EventLoopPOSIX_cancel(UA_EventLoopPOSIX *el);
+
+void
+UA_EventLoopPOSIX_addDelayedCallback(UA_EventLoop *public_el,
+                                     UA_DelayedCallback *dc);
 
 _UA_END_DECLS
 

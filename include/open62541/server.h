@@ -41,8 +41,6 @@
 _UA_BEGIN_DECLS
 
 /* Forward declarations */
-struct UA_PubSubConfiguration;
-typedef struct UA_PubSubConfiguration UA_PubSubConfiguration;
 typedef void (*UA_Server_AsyncOperationNotifyCallback)(UA_Server *server);
 
 /**
@@ -258,6 +256,12 @@ struct UA_ServerConfig {
     /* Limits for Requests */
     UA_UInt32 maxReferencesPerNode;
 
+#ifdef UA_ENABLE_ENCRYPTION
+    /* Limits for TrustList */
+    UA_UInt32 maxTrustListSize; /* in bytes, 0 => unlimited */
+    UA_UInt32 maxRejectedListSize; /* 0 => unlimited */
+#endif
+
     /**
      * Async Operations
      * ^^^^^^^^^^^^^^^^
@@ -344,8 +348,8 @@ struct UA_ServerConfig {
     /**
      * PubSub
      * ^^^^^^ */
-    UA_Boolean pubsubEnabled;
 #ifdef UA_ENABLE_PUBSUB
+    UA_Boolean pubsubEnabled;
     UA_PubSubConfiguration pubSubConfig;
 #endif
 
@@ -397,7 +401,12 @@ struct UA_ServerConfig {
 };
 
 void UA_EXPORT
-UA_ServerConfig_clean(UA_ServerConfig *config);
+UA_ServerConfig_clear(UA_ServerConfig *config);
+
+UA_DEPRECATED static UA_INLINE void
+UA_ServerConfig_clean(UA_ServerConfig *config) {
+    UA_ServerConfig_clear(config);
+}
 
 /**
  * .. _server-lifecycle:
@@ -1888,6 +1897,18 @@ UA_Server_updateCertificate(UA_Server *server,
                             const UA_ByteString *newPrivateKey,
                             UA_Boolean closeSessions,
                             UA_Boolean closeSecureChannels);
+
+/**
+ * Creates a PKCS #10 DER encoded certificate request signed with the server's private key
+ * ---------------------------------------------------------------------------------------- */
+UA_StatusCode UA_EXPORT
+UA_Server_createSigningRequest(UA_Server *server,
+                               const UA_NodeId certificateGroupId,
+                               const UA_NodeId certificateTypeId,
+                               const UA_String *subjectName,
+                               const UA_Boolean *regenerateKey,
+                               const UA_ByteString *nonce,
+                               UA_ByteString *csr);
 
 /**
  * Utility Functions

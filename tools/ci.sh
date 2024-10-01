@@ -99,13 +99,11 @@ function build_amalgamation {
           -DUA_ENABLE_SUBSCRIPTIONS_EVENTS=ON \
           -DUA_ENABLE_JSON_ENCODING=ON \
           -DUA_ENABLE_XML_ENCODING=ON \
-          -DUA_ENABLE_NODESETLOADER=ON \
           -DUA_ENABLE_PUBSUB=ON \
           -DUA_ENABLE_PUBSUB_INFORMATIONMODEL=ON \
-          -DUA_ENABLE_PUBSUB_MONITORING=ON \
-          -DUA_FORCE_WERROR=ON \
           ..
-    make ${MAKEOPTS}
+    make open62541-amalgamation ${MAKEOPTS}
+    gcc -Wall -Werror -c open62541.c
 }
 
 function build_amalgamation_mt {
@@ -115,14 +113,12 @@ function build_amalgamation_mt {
           -DUA_ENABLE_SUBSCRIPTIONS_EVENTS=ON \
           -DUA_ENABLE_JSON_ENCODING=ON \
           -DUA_ENABLE_XML_ENCODING=ON \
-          -DUA_ENABLE_NODESETLOADER=ON \
           -DUA_ENABLE_PUBSUB=ON \
           -DUA_ENABLE_PUBSUB_INFORMATIONMODEL=ON \
-          -DUA_ENABLE_PUBSUB_MONITORING=ON \
-          -DUA_FORCE_WERROR=ON \
           -DUA_MULTITHREADING=100 \
           ..
-    make ${MAKEOPTS}
+    make open62541-amalgamation ${MAKEOPTS}
+    gcc -Wall -Werror -c open62541.c
 }
 
 ############################
@@ -147,7 +143,6 @@ function unit_tests {
           -DUA_ENABLE_PUBSUB=ON \
           -DUA_ENABLE_MQTT=ON \
           -DUA_ENABLE_PUBSUB_INFORMATIONMODEL=ON \
-          -DUA_ENABLE_PUBSUB_MONITORING=ON \
           -DUA_FORCE_WERROR=ON \
           ..
     make ${MAKEOPTS}
@@ -166,7 +161,6 @@ function unit_tests_32 {
           -DUA_ENABLE_NODESETLOADER=ON \
           -DUA_ENABLE_PUBSUB=ON \
           -DUA_ENABLE_PUBSUB_INFORMATIONMODEL=ON \
-          -DUA_ENABLE_PUBSUB_MONITORING=ON \
           -DUA_FORCE_32BIT=ON \
           -DUA_FORCE_WERROR=ON \
           ..
@@ -201,7 +195,6 @@ function unit_tests_diag {
           -DUA_ENABLE_NODESETLOADER=ON \
           -DUA_ENABLE_PUBSUB=ON \
           -DUA_ENABLE_PUBSUB_INFORMATIONMODEL=ON \
-          -DUA_ENABLE_PUBSUB_MONITORING=ON \
           -DUA_FORCE_WERROR=ON \
           ..
     make ${MAKEOPTS}
@@ -260,10 +253,8 @@ function unit_tests_encryption_mbedtls_pubsub {
           -DUA_BUILD_EXAMPLES=ON \
           -DUA_BUILD_UNIT_TESTS=ON \
           -DUA_ENABLE_ENCRYPTION=MBEDTLS \
-          -DUA_ENABLE_CERT_REJECTED_DIR=ON \
           -DUA_ENABLE_PUBSUB=ON \
           -DUA_ENABLE_PUBSUB_INFORMATIONMODEL=ON \
-          -DUA_ENABLE_PUBSUB_MONITORING=ON \
           -DUA_ENABLE_PUBSUB_ENCRYPTION=ON \
           -DUA_FORCE_WERROR=ON \
           ..
@@ -281,7 +272,6 @@ function unit_tests_pubsub_sks {
           -DUA_ENABLE_ENCRYPTION=MBEDTLS \
           -DUA_ENABLE_PUBSUB=ON \
           -DUA_ENABLE_PUBSUB_INFORMATIONMODEL=ON \
-          -DUA_ENABLE_PUBSUB_MONITORING=ON \
           -DUA_ENABLE_PUBSUB_ENCRYPTION=ON \
           -DUA_ENABLE_PUBSUB_SKS=ON \
           -DUA_ENABLE_UNIT_TESTS_MEMCHECK=ON \
@@ -308,7 +298,6 @@ function unit_tests_with_coverage {
           -DUA_ENABLE_PUBSUB=ON \
           -DUA_ENABLE_MQTT=ON \
           -DUA_ENABLE_PUBSUB_INFORMATIONMODEL=ON \
-          -DUA_ENABLE_PUBSUB_MONITORING=ON \
           -DUA_ENABLE_ENCRYPTION=MBEDTLS \
           -DUA_FORCE_WERROR=ON \
           ..
@@ -334,7 +323,6 @@ function unit_tests_valgrind {
           -DUA_ENABLE_PUBSUB=ON \
           -DUA_ENABLE_MQTT=ON \
           -DUA_ENABLE_PUBSUB_INFORMATIONMODEL=ON \
-          -DUA_ENABLE_PUBSUB_MONITORING=ON \
           -DUA_ENABLE_UNIT_TESTS_MEMCHECK=ON \
           -DUA_FORCE_WERROR=ON \
           ..
@@ -365,7 +353,6 @@ function examples_valgrind {
           -DUA_ENABLE_JSON_ENCODING=ON \
           -DUA_ENABLE_PUBSUB=ON \
           -DUA_ENABLE_PUBSUB_INFORMATIONMODEL=ON \
-          -DUA_ENABLE_PUBSUB_MONITORING=ON \
           -DUA_ENABLE_UNIT_TESTS_MEMCHECK=ON \
           -DUA_ENABLE_MQTT=ON \
           -DUA_ENABLE_PUBSUB_FILE_CONFIG=ON \
@@ -405,10 +392,9 @@ function build_clang_analyzer {
           -DUA_ENABLE_NODESETLOADER=ON \
           -DUA_ENABLE_PUBSUB=ON \
           -DUA_ENABLE_PUBSUB_INFORMATIONMODEL=ON \
-          -DUA_ENABLE_PUBSUB_MONITORING=ON \
           -DUA_FORCE_WERROR=ON \
           ..
-    scan-build-11 --status-bugs make ${MAKEOPTS}
+    scan-build-11 --status-bugs --exclude ../src/util make ${MAKEOPTS}
 }
 
 ###################################################

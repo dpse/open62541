@@ -18,9 +18,9 @@
 #include <open62541/client_highlevel.h>
 #include <open62541/client_subscriptions.h>
 
+#include "../ua_securechannel.h"
+#include "../util/ua_util_internal.h"
 #include "open62541_queue.h"
-#include "ua_securechannel.h"
-#include "util/ua_util_internal.h"
 #include "ziptree.h"
 
 _UA_BEGIN_DECLS
@@ -64,7 +64,7 @@ typedef struct UA_Client_Subscription {
 } UA_Client_Subscription;
 
 void
-__Client_Subscriptions_clean(UA_Client *client);
+__Client_Subscriptions_clear(UA_Client *client);
 
 /* Exposed for fuzzing */
 UA_StatusCode

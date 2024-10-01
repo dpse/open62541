@@ -4,7 +4,6 @@
 
 #include <open62541/types.h>
 #include <open62541/types_generated.h>
-#include <open62541/types_generated_handling.h>
 #include <open62541/util.h>
 
 #include "ua_types_encoding_binary.h"
@@ -3978,7 +3977,7 @@ START_TEST(UA_ByteString_bad_json_decode) {
 
     UA_StatusCode retval = UA_decodeJson(&buf, &out, &UA_TYPES[UA_TYPES_BYTESTRING], NULL);
     // then
-    ck_assert_int_eq(retval, UA_STATUSCODE_GOOD);
+    ck_assert_int_ne(retval, UA_STATUSCODE_GOOD);
     UA_ByteString_clear(&out);
 }
 END_TEST

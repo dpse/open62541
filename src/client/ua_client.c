@@ -23,7 +23,7 @@
 #include <open62541/transport_generated.h>
 
 #include "ua_client_internal.h"
-#include "ua_types_encoding_binary.h"
+#include "../ua_types_encoding_binary.h"
 
 static void
 clientHouseKeeping(UA_Client *client, void *_);
@@ -219,7 +219,7 @@ UA_Client_clear(UA_Client *client) {
 
     /* Delete the subscriptions */
 #ifdef UA_ENABLE_SUBSCRIPTIONS
-    __Client_Subscriptions_clean(client);
+    __Client_Subscriptions_clear(client);
 #endif
 
     /* Remove the internal regular callback */
@@ -272,7 +272,7 @@ static const char *sessionStateTexts[6] =
 
 void
 notifyClientState(UA_Client *client) {
-    UA_LOCK_ASSERT(&client->clientMutex, 1);
+    UA_LOCK_ASSERT(&client->clientMutex);
 
     if(client->connectStatus == client->oldConnectStatus &&
        client->channel.state == client->oldChannelState &&
@@ -322,7 +322,7 @@ notifyClientState(UA_Client *client) {
 static UA_StatusCode
 sendRequest(UA_Client *client, const void *request,
             const UA_DataType *requestType, UA_UInt32 *requestId) {
-    UA_LOCK_ASSERT(&client->clientMutex, 1);
+    UA_LOCK_ASSERT(&client->clientMutex);
 
     /* Renew SecureChannel if necessary */
     __Client_renewSecureChannel(client);
@@ -449,8 +449,11 @@ processMSGResponse(UA_Client *client, UA_UInt32 requestId,
                  "Decode a message of type %" PRIu32,
                  responseTypeId.identifier.numeric);
 #endif
-    retval = UA_decodeBinaryInternal(msg, &offset, response, responseType,
-                                     client->config.customDataTypes);
+
+    UA_DecodeBinaryOptions opt;
+    memset(&opt, 0, sizeof(UA_DecodeBinaryOptions));
+    opt.customTypes = client->config.customDataTypes;
+    retval = UA_decodeBinaryInternal(msg, &offset, response, responseType, &opt);
 
  process:
     /* Process the received MSG response */
@@ -563,14 +566,14 @@ __Client_Service(UA_Client *client, const void *request,
     UA_EventLoop *el = client->config.eventLoop;
     if(!el || el->state != UA_EVENTLOOPSTATE_STARTED) {
         respHeader->serviceResult = UA_STATUSCODE_BADINTERNALERROR;
-		return;
+        return;
     }
 
     /* Check that the SecureChannel is open and also a Session active (if we
      * want a Session). Otherwise reopen. */
     if(!isFullyConnected(client)) {
         UA_LOG_INFO(client->config.logging, UA_LOGCATEGORY_CLIENT,
-                    "Re-establish the connction for the synchronous service call");
+                    "Re-establish the connection for the synchronous service call");
         connectSync(client);
         if(client->connectStatus != UA_STATUSCODE_GOOD) {
             respHeader->serviceResult = client->connectStatus;
@@ -748,7 +751,7 @@ __Client_AsyncService(UA_Client *client, const void *request,
                       UA_ClientAsyncServiceCallback callback,
                       const UA_DataType *responseType,
                       void *userdata, UA_UInt32 *requestId) {
-    UA_LOCK_ASSERT(&client->clientMutex, 1);
+    UA_LOCK_ASSERT(&client->clientMutex);
 
     /* Is the SecureChannel connected? */
     if(client->channel.state != UA_SECURECHANNELSTATE_OPEN) {
@@ -865,8 +868,8 @@ UA_Client_addTimedCallback(UA_Client *client, UA_ClientCallback callback,
         return UA_STATUSCODE_BADINTERNALERROR;
     UA_LOCK(&client->clientMutex);
     UA_StatusCode res = client->config.eventLoop->
-        addTimedCallback(client->config.eventLoop, (UA_Callback)callback,
-                         client, data, date, callbackId);
+        addTimer(client->config.eventLoop, (UA_Callback)callback,
+                 client, data, 0.0, &date, UA_TIMERPOLICY_ONCE, callbackId);
     UA_UNLOCK(&client->clientMutex);
     return res;
 }
@@ -878,9 +881,8 @@ UA_Client_addRepeatedCallback(UA_Client *client, UA_ClientCallback callback,
         return UA_STATUSCODE_BADINTERNALERROR;
     UA_LOCK(&client->clientMutex);
     UA_StatusCode res = client->config.eventLoop->
-        addCyclicCallback(client->config.eventLoop, (UA_Callback)callback,
-                          client, data, interval_ms, NULL,
-                          UA_TIMER_HANDLE_CYCLEMISS_WITH_CURRENTTIME, callbackId);
+        addTimer(client->config.eventLoop, (UA_Callback)callback, client, data,
+                 interval_ms, NULL, UA_TIMERPOLICY_CURRENTTIME, callbackId);
     UA_UNLOCK(&client->clientMutex);
     return res;
 }
@@ -892,8 +894,8 @@ UA_Client_changeRepeatedCallbackInterval(UA_Client *client, UA_UInt64 callbackId
         return UA_STATUSCODE_BADINTERNALERROR;
     UA_LOCK(&client->clientMutex);
     UA_StatusCode res = client->config.eventLoop->
-        modifyCyclicCallback(client->config.eventLoop, callbackId, interval_ms,
-                             NULL, UA_TIMER_HANDLE_CYCLEMISS_WITH_CURRENTTIME);
+        modifyTimer(client->config.eventLoop, callbackId, interval_ms,
+                    NULL, UA_TIMERPOLICY_CURRENTTIME);
     UA_UNLOCK(&client->clientMutex);
     return res;
 }
@@ -903,8 +905,7 @@ UA_Client_removeCallback(UA_Client *client, UA_UInt64 callbackId) {
     if(!client->config.eventLoop)
         return;
     UA_LOCK(&client->clientMutex);
-    client->config.eventLoop->
-        removeCyclicCallback(client->config.eventLoop, callbackId);
+    client->config.eventLoop->removeTimer(client->config.eventLoop, callbackId);
     UA_UNLOCK(&client->clientMutex);
 }
 
@@ -974,7 +975,7 @@ __Client_backgroundConnectivity(UA_Client *client) {
     UA_ReadValueId rvid;
     UA_ReadValueId_init(&rvid);
     rvid.attributeId = UA_ATTRIBUTEID_VALUE;
-    rvid.nodeId = UA_NODEID_NUMERIC(0, UA_NS0ID_SERVER_SERVERSTATUS_STATE);
+    rvid.nodeId = UA_NS0ID(SERVER_SERVERSTATUS_STATE);
     UA_ReadRequest request;
     UA_ReadRequest_init(&request);
     request.nodesToRead = &rvid;
@@ -1021,21 +1022,23 @@ clientHouseKeeping(UA_Client *client, void *_) {
 
 UA_StatusCode
 __UA_Client_startup(UA_Client *client) {
-    /* On entry, the client mutex is already locked */
+    UA_LOCK_ASSERT(&client->clientMutex);
+
     UA_EventLoop *el = client->config.eventLoop;
     UA_CHECK_ERROR(el != NULL,
                    return UA_STATUSCODE_BADINTERNALERROR,
                    client->config.logging, UA_LOGCATEGORY_CLIENT,
                    "No EventLoop configured");
 
-    /* Set up the regular callback for checking the internal state? */
+    /* Set up the repeated timer callback for checking the internal state. Like
+     * in the public API UA_Client_addRepeatedCallback, but without locking the
+     * mutex again */
     UA_StatusCode rv = UA_STATUSCODE_GOOD;
     if(!client->houseKeepingCallbackId) {
-        /* As per UA_Client_addRepeatedCallback but without locking mutex */
-        rv = el->addCyclicCallback(el, (UA_Callback)clientHouseKeeping,
-                                   client, NULL, 1000.0, NULL,
-                                   UA_TIMER_HANDLE_CYCLEMISS_WITH_CURRENTTIME,
-                                   &client->houseKeepingCallbackId);
+        rv = el->addTimer(el, (UA_Callback)clientHouseKeeping,
+                          client, NULL, 1000.0, NULL,
+                          UA_TIMERPOLICY_CURRENTTIME,
+                          &client->houseKeepingCallbackId);
         UA_CHECK_STATUS(rv, return rv);
     }
 
@@ -1050,10 +1053,15 @@ __UA_Client_startup(UA_Client *client) {
 
 UA_StatusCode
 UA_Client_run_iterate(UA_Client *client, UA_UInt32 timeout) {
+    /* Make sure the EventLoop has been started */
+    UA_LOCK(&client->clientMutex);
     UA_StatusCode rv = __UA_Client_startup(client);
+    UA_UNLOCK(&client->clientMutex);
     UA_CHECK_STATUS(rv, return rv);
 
-    /* Process timed and network events in the EventLoop */
+    /* All timers and network events are triggered in the EventLoop. Release the
+     * client lock before. The callbacks from the EventLoop take the lock
+     * again. */
     UA_EventLoop *el = client->config.eventLoop;
     rv = el->run(el, timeout);
     UA_CHECK_STATUS(rv, return rv);

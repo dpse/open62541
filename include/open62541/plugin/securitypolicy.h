@@ -305,6 +305,9 @@ struct UA_SecurityPolicy {
      * depends on the used key length. */
     UA_ByteString localCertificate;
 
+    UA_NodeId certificateGroupId;
+    UA_NodeId certificateTypeId;
+
     /* Function pointers grouped into modules */
     UA_SecurityPolicyAsymmetricModule asymmetricModule;
     UA_SecurityPolicySymmetricModule symmetricModule;
@@ -319,6 +322,15 @@ struct UA_SecurityPolicy {
                                                     const UA_ByteString newCertificate,
                                                     const UA_ByteString newPrivateKey);
 
+    /* Creates a PKCS #10 DER encoded certificate request signed with the server's
+     * private key. */
+    UA_StatusCode (*createSigningRequest)(UA_SecurityPolicy *securityPolicy,
+                                          const UA_String *subjectName,
+                                          const UA_ByteString *nonce,
+                                          const UA_KeyValueMap *params,
+                                          UA_ByteString *csr,
+                                          UA_ByteString *newPrivateKey);
+
     /* Deletes the dynamic content of the policy */
     void (*clear)(UA_SecurityPolicy *policy);
 };
@@ -331,7 +343,6 @@ struct UA_SecurityPolicy {
  * SecurityHeader. The nonce is required for the de- and encryption and has to
  * be set in the channel context before de/encrypting. */
 
-#ifdef UA_ENABLE_PUBSUB_ENCRYPTION
 struct UA_PubSubSecurityPolicy;
 typedef struct UA_PubSubSecurityPolicy UA_PubSubSecurityPolicy;
 
@@ -376,8 +387,6 @@ struct UA_PubSubSecurityPolicy {
     void (*clear)(UA_PubSubSecurityPolicy *policy);
     void *policyContext;
 };
-
-#endif
 
 _UA_END_DECLS
 

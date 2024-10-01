@@ -45,15 +45,22 @@ typedef struct UA_InterruptManager UA_InterruptManager;
  *
  * Timer Policies
  * --------------
- * A timer comes with a cyclic interval in which a callback is executed. If an
+ * A timer comes with a periodic interval in which a callback is executed. If an
  * application is congested the interval can be missed. Two different policies
  * can be used when this happens. Either schedule the next execution after the
  * interval has elapsed again from the current time onwards or stay within the
  * regular interval with respect to the original basetime. */
 
 typedef enum {
-    UA_TIMER_HANDLE_CYCLEMISS_WITH_CURRENTTIME,
-    UA_TIMER_HANDLE_CYCLEMISS_WITH_BASETIME
+    UA_TIMERPOLICY_ONCE = 0,        /* Execute the timer once and remove */
+    UA_TIMERPOLICY_CURRENTTIME = 1, /* Repeated timer. Upon cycle miss, execute
+                                     * "now" and wait exactly for the interval
+                                     * until the next execution (new basetime). */
+    UA_TIMERPOLICY_BASETIME = 2,    /* Repeated timer. Upon cycle miss, execute
+                                     * "now" and fall back into the regular
+                                     * cycle from the original basetime (the
+                                     * next execution might come after less
+                                     * delay than the interval defines). */
 } UA_TimerPolicy;
 
 /**
@@ -111,14 +118,19 @@ struct UA_EventLoop {
      * iterations of the main-loop to succeed. */
     void (*stop)(UA_EventLoop *el);
 
-    /* Process events for at most "timeout" ms or until an unrecoverable error
-     * occurs. If timeout==0, then only already received events are
-     * processed. */
-    UA_StatusCode (*run)(UA_EventLoop *el, UA_UInt32 timeout);
-
     /* Clean up the EventLoop and free allocated memory. Can fail if the
      * EventLoop is not stopped. */
     UA_StatusCode (*free)(UA_EventLoop *el);
+
+    /* Wait for events and processs them for at most "timeout" ms or until an
+     * unrecoverable error occurs. If timeout==0, then only already received
+     * events are processed. Returns immediately after processing the first
+     * (batch of) event(s). */
+    UA_StatusCode (*run)(UA_EventLoop *el, UA_UInt32 timeout);
+
+    /* The "run" method is blocking and waits for events during a timeout
+     * period. This cancels the "run" method to return immediately. */
+    void (*cancel)(UA_EventLoop *el);
 
     /* EventLoop Time Domain
      * ~~~~~~~~~~~~~~~~~~~~~
@@ -147,33 +159,30 @@ struct UA_EventLoop {
     UA_DateTime (*dateTime_nowMonotonic)(UA_EventLoop *el);
     UA_Int64    (*dateTime_localTimeUtcOffset)(UA_EventLoop *el);
 
-    /* Timed Callbacks
+    /* Timer Callbacks
      * ~~~~~~~~~~~~~~~
-     * Cyclic callbacks are executed regularly with an interval.
-     * A timed callback is executed only once. */
+     * Timer callbacks are executed at a defined time or regularly with a
+     * periodic interval. */
 
-    /* Time of the next cyclic callback. Returns the max DateTime if no cyclic
-     * callback is registered. */
-    UA_DateTime (*nextCyclicTime)(UA_EventLoop *el);
+    /* Time of the next timer. Returns the UA_DATETIME_MAX if no timer is
+     * registered. */
+    UA_DateTime (*nextTimer)(UA_EventLoop *el);
 
-    /* The execution interval is in ms. Returns the callbackId if the pointer is
-     * non-NULL. */
+    /* The execution interval is in ms. The first execution time is baseTime +
+     * interval. If baseTime is NULL, then the current time is used for the base
+     * time. The timerId is written if the pointer is non-NULL. */
     UA_StatusCode
-    (*addCyclicCallback)(UA_EventLoop *el, UA_Callback cb, void *application,
-                         void *data, UA_Double interval_ms, UA_DateTime *baseTime,
-                         UA_TimerPolicy timerPolicy, UA_UInt64 *callbackId);
+    (*addTimer)(UA_EventLoop *el, UA_Callback cb, void *application,
+                void *data, UA_Double interval_ms, UA_DateTime *baseTime,
+                UA_TimerPolicy timerPolicy, UA_UInt64 *timerId);
 
+    /* If baseTime is NULL, use the current time as the base. */
     UA_StatusCode
-    (*modifyCyclicCallback)(UA_EventLoop *el, UA_UInt64 callbackId,
-                            UA_Double interval_ms, UA_DateTime *baseTime,
-                            UA_TimerPolicy timerPolicy);
+    (*modifyTimer)(UA_EventLoop *el, UA_UInt64 timerId,
+                   UA_Double interval_ms, UA_DateTime *baseTime,
+                   UA_TimerPolicy timerPolicy);
 
-    void (*removeCyclicCallback)(UA_EventLoop *el, UA_UInt64 callbackId);
-
-    /* Like a cyclic callback, but executed only once */
-    UA_StatusCode
-    (*addTimedCallback)(UA_EventLoop *el, UA_Callback cb, void *application,
-                        void *data, UA_DateTime date, UA_UInt64 *callbackId);
+    void (*removeTimer)(UA_EventLoop *el, UA_UInt64 timerId);
 
     /* Delayed Callbacks
      * ~~~~~~~~~~~~~~~~~
@@ -183,9 +192,12 @@ struct UA_EventLoop {
      * has no remaining users.
      *
      * The delayed callbacks are processed in each of the cycle of the EventLoop
-     * between the handling of timed cyclic callbacks and polling for (network)
+     * between the handling of periodic callbacks and polling for (network)
      * events. The memory for the delayed callback is *NOT* automatically freed
-     * after the execution. */
+     * after the execution.
+     *
+     * addDelayedCallback is non-blocking and can be called from an interrupt
+     * context. removeDelayedCallback can take a mutex and is blocking. */
 
     void (*addDelayedCallback)(UA_EventLoop *el, UA_DelayedCallback *dc);
     void (*removeDelayedCallback)(UA_EventLoop *el, UA_DelayedCallback *dc);
@@ -430,16 +442,20 @@ struct UA_InterruptManager {
  * POSIX EventLop Implementation
  * -----------------------------
  * The POSIX compatibility of Win32 is 'close enough'. So a joint implementation
- * is provided.
+ * is provided. The configuration paramaters must be set before starting the
+ * EventLoop.
  *
- * Configuration parameters (only Linux and BSDs, must be set before start to
- * take effect):
- * - 0:clock-source [int32]: Clock source (default: CLOCK_REALTIME).
- * - 0:clock-source-monotonic [int32]: Clock source used for time intervals. A
- *     non-monotonic source can be used as well. But expect accordingly longer
- *     sleep-times for timed events when the clock is set to the past. See the
- *     man-page of "clock_gettime" on how to get a clock source id for a
- *     character-device such as /dev/ptp0. (default: CLOCK_MONOTONIC_RAW)*/
+ * **Clock configuration (Linux and BSDs only)**
+ *
+ * 0:clock-source [int32]
+ *    Clock source (default: CLOCK_REALTIME).
+ *
+ * 0:clock-source-monotonic [int32]:
+ *   Clock source used for time intervals. A non-monotonic source can be used as
+ *   well. But expect accordingly longer sleep-times for timed events when the
+ *   clock is set to the past. See the man-page of "clock_gettime" on how to get
+ *   a clock source id for a character-device such as /dev/ptp0. (default:
+ *   CLOCK_MONOTONIC_RAW) */
 
 UA_EXPORT UA_EventLoop *
 UA_EventLoop_new_POSIX(const UA_Logger *logger);
@@ -476,8 +492,9 @@ UA_EventLoop_new_POSIX(const UA_Logger *logger);
  *
  * 0:address [string | array of string]
  *    Hostname or IPv4/v6 address for the connection (scalar parameter required
- *    for active connections). For listen-connections the address implies the
- *    network interfaces for listening (default: listen on all interfaces).
+ *    for active connections). For listen-connections the address contains the
+ *    local hostnames or IP addresses for listening. If undefined, listen on all
+ *    interfaces INADDR_ANY. (default: undefined)
  *
  * 0:port [uint16]
  *    Port of the target host (required).
@@ -498,10 +515,10 @@ UA_EventLoop_new_POSIX(const UA_Logger *logger);
  * **Listen Connection Connection Callback Parameters (first callback only):**
  *
  * 0:listen-address [string]
- *    Local address for that particular listen-connection.
+ *    Local address (IP or hostname) for the new listen-connection.
  *
  * 0:listen-port [uint16]
- *    Port on which the connection listens.
+ *    Port on which the new connection listens.
  *
  * **Send Parameters:**
  *
@@ -542,7 +559,8 @@ UA_ConnectionManager_new_POSIX_TCP(const UA_String eventSourceName);
  *
  * 0:interface [string]
  *    Network interface for listening or sending (e.g. when using multicast
- *    addresses)
+ *    addresses). Can be either the IP address of the network interface
+ *    or the interface name (e.g. 'eth0').
  *
  * 0:ttl [uint32]
  *    Multicast time to live, (optional, default: 1 - meaning multicast is
@@ -567,7 +585,7 @@ UA_ConnectionManager_new_POSIX_TCP(const UA_String eventSourceName);
  *    creating any connection but solely validating the provided parameters
  *    (default: false)
  *
- * **Connection Callback Paramters:**
+ * **Connection Callback Parameters:**
  *
  * 0:remote-address [string]
  *    Contains the remote IP address.

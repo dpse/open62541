@@ -11,7 +11,7 @@
  * unit for the generated code from UA_INLINABLE definitions. */
 #define UA_INLINABLE_IMPL 1
 
-#include <open62541/types_generated_handling.h>
+#include <open62541/types.h>
 #include <open62541/server.h>
 #include <open62541/util.h>
 #include <open62541/common.h>
@@ -52,6 +52,45 @@ UA_AttributeId_fromName(const UA_String name) {
         continue;
     }
     return UA_ATTRIBUTEID_INVALID;
+}
+
+static UA_DataTypeKind
+typeEquivalence(const UA_DataType *t) {
+    UA_DataTypeKind k = (UA_DataTypeKind)t->typeKind;
+    if(k == UA_DATATYPEKIND_ENUM)
+        return UA_DATATYPEKIND_INT32;
+    return k;
+}
+
+void
+adjustType(UA_Variant *value, const UA_DataType *targetType) {
+    /* If the value is empty, there is nothing we can do here */
+    const UA_DataType *type = value->type;
+    if(!type || !targetType)
+        return;
+
+    /* A string is written to a byte array. the valuerank and array dimensions
+     * are checked later */
+    if(targetType == &UA_TYPES[UA_TYPES_BYTE] &&
+       type == &UA_TYPES[UA_TYPES_BYTESTRING] &&
+       UA_Variant_isScalar(value)) {
+        UA_ByteString *str = (UA_ByteString*)value->data;
+        value->type = &UA_TYPES[UA_TYPES_BYTE];
+        value->arrayLength = str->length;
+        value->data = str->data;
+        return;
+    }
+
+    /* An enum was sent as an int32, or an opaque type as a bytestring. This
+     * is detected with the typeKind indicating the "true" datatype. */
+    UA_DataTypeKind te1 = typeEquivalence(targetType);
+    UA_DataTypeKind te2 = typeEquivalence(type);
+    if(te1 == te2 && te1 <= UA_DATATYPEKIND_ENUM) {
+        value->type = targetType;
+        return;
+    }
+
+    /* Add more possible type adjustments here. What are they? */
 }
 
 size_t
@@ -908,4 +947,288 @@ UA_ByteString_memZero(UA_ByteString *bs) {
        ptr[i++] = 0;
    }
 #endif
+}
+
+UA_Boolean
+UA_TrustListDataType_contains(const UA_TrustListDataType *trustList,
+                              const UA_ByteString *certificate,
+                              UA_TrustListMasks specifiedList) {
+    if(!trustList || !certificate)
+        return false;
+
+    if(specifiedList == UA_TRUSTLISTMASKS_TRUSTEDCERTIFICATES) {
+        for(size_t i = 0; i < trustList->trustedCertificatesSize; i++) {
+            if(UA_ByteString_equal(certificate, &trustList->trustedCertificates[i]))
+                return true;
+        }
+    }
+    if(specifiedList == UA_TRUSTLISTMASKS_TRUSTEDCRLS) {
+        for(size_t i = 0; i < trustList->trustedCrlsSize; i++) {
+            if(UA_ByteString_equal(certificate, &trustList->trustedCrls[i]))
+                return true;
+        }
+    }
+    if(specifiedList == UA_TRUSTLISTMASKS_ISSUERCERTIFICATES) {
+        for(size_t i = 0; i < trustList->issuerCertificatesSize; i++) {
+            if(UA_ByteString_equal(certificate, &trustList->issuerCertificates[i]))
+                return true;
+        }
+    }
+    if(specifiedList == UA_TRUSTLISTMASKS_ISSUERCRLS) {
+        for(size_t i = 0; i < trustList->issuerCrlsSize; i++) {
+            if(UA_ByteString_equal(certificate, &trustList->issuerCrls[i]))
+                return true;
+        }
+    }
+
+    return false;
+}
+
+UA_StatusCode
+UA_TrustListDataType_add(const UA_TrustListDataType *src, UA_TrustListDataType *dst) {
+    if(!dst)
+        return UA_STATUSCODE_BADINVALIDARGUMENT;
+    if(!src) {
+        return UA_STATUSCODE_GOOD;
+    }
+
+    UA_StatusCode retval = UA_STATUSCODE_GOOD;
+
+    if(src->specifiedLists & UA_TRUSTLISTMASKS_TRUSTEDCERTIFICATES) {
+        if(dst->trustedCertificates == NULL)
+            dst->trustedCertificates = (UA_ByteString *)UA_Array_new(0, &UA_TYPES[UA_TYPES_BYTESTRING]);
+        for(size_t i = 0; i < src->trustedCertificatesSize; i++) {
+            if(UA_TrustListDataType_contains(dst, &src->trustedCertificates[i],
+                                             UA_TRUSTLISTMASKS_TRUSTEDCERTIFICATES)) {
+                continue;
+            }
+            retval = UA_Array_appendCopy((void**)&dst->trustedCertificates, &dst->trustedCertificatesSize,
+                                      &src->trustedCertificates[i], &UA_TYPES[UA_TYPES_BYTESTRING]);
+            if(retval != UA_STATUSCODE_GOOD) {
+                return retval;
+            }
+        }
+        dst->specifiedLists |= UA_TRUSTLISTMASKS_TRUSTEDCERTIFICATES;
+    }
+    if(src->specifiedLists & UA_TRUSTLISTMASKS_TRUSTEDCRLS) {
+        if(dst->trustedCrls == NULL)
+            dst->trustedCrls = (UA_ByteString *)UA_Array_new(0, &UA_TYPES[UA_TYPES_BYTESTRING]);
+        for(size_t i = 0; i < src->trustedCrlsSize; i++) {
+            if(UA_TrustListDataType_contains(dst, &src->trustedCrls[i],
+                                             UA_TRUSTLISTMASKS_TRUSTEDCRLS)) {
+                continue;
+            }
+            retval = UA_Array_appendCopy((void**)&dst->trustedCrls, &dst->trustedCrlsSize,
+                                      &src->trustedCrls[i], &UA_TYPES[UA_TYPES_BYTESTRING]);
+            if(retval != UA_STATUSCODE_GOOD) {
+                return retval;
+            }
+        }
+        dst->specifiedLists |= UA_TRUSTLISTMASKS_TRUSTEDCRLS;
+    }
+    if(src->specifiedLists & UA_TRUSTLISTMASKS_ISSUERCERTIFICATES) {
+        if(dst->issuerCertificates == NULL)
+            dst->issuerCertificates = (UA_ByteString *)UA_Array_new(0, &UA_TYPES[UA_TYPES_BYTESTRING]);
+        for(size_t i = 0; i < src->issuerCertificatesSize; i++) {
+            if(UA_TrustListDataType_contains(dst, &src->issuerCertificates[i],
+                                            UA_TRUSTLISTMASKS_ISSUERCERTIFICATES)) {
+                continue;
+            }
+            retval = UA_Array_appendCopy((void**)&dst->issuerCertificates, &dst->issuerCertificatesSize,
+                                      &src->issuerCertificates[i], &UA_TYPES[UA_TYPES_BYTESTRING]);
+            if(retval != UA_STATUSCODE_GOOD) {
+                return retval;
+            }
+        }
+        dst->specifiedLists |= UA_TRUSTLISTMASKS_ISSUERCERTIFICATES;
+    }
+    if(src->specifiedLists & UA_TRUSTLISTMASKS_ISSUERCRLS) {
+        if(dst->issuerCrls == NULL)
+            dst->issuerCrls = (UA_ByteString *)UA_Array_new(0, &UA_TYPES[UA_TYPES_BYTESTRING]);
+        for(size_t i = 0; i < src->issuerCrlsSize; i++) {
+            if(UA_TrustListDataType_contains(dst, &src->issuerCrls[i],
+                                            UA_TRUSTLISTMASKS_ISSUERCRLS)) {
+                continue;
+            }
+            retval = UA_Array_appendCopy((void**)&dst->issuerCrls, &dst->issuerCrlsSize,
+                                      &src->issuerCrls[i], &UA_TYPES[UA_TYPES_BYTESTRING]);
+            if(retval != UA_STATUSCODE_GOOD) {
+                return retval;
+            }
+        }
+        dst->specifiedLists |= UA_TRUSTLISTMASKS_ISSUERCRLS;
+    }
+
+    return retval;
+}
+
+UA_StatusCode
+UA_TrustListDataType_remove(const UA_TrustListDataType *src, UA_TrustListDataType *dst) {
+    if(!dst)
+        return UA_STATUSCODE_BADINVALIDARGUMENT;
+    if(!src) {
+        return UA_STATUSCODE_GOOD;
+    }
+
+    UA_StatusCode retval = UA_STATUSCODE_GOOD;
+
+    /* remove trusted certificates */
+    if(dst->trustedCertificatesSize > 0 && src->trustedCertificatesSize > 0) {
+        UA_ByteString *newList = (UA_ByteString*)UA_calloc(dst->trustedCertificatesSize, sizeof(UA_ByteString));
+        size_t newListSize = 0;
+        size_t oldListSize = dst->trustedCertificatesSize;
+        UA_Boolean isContained = false;
+        for(size_t i = 0; i < dst->trustedCertificatesSize; i++) {
+            for(size_t j = 0; j < src->trustedCertificatesSize; j++) {
+                if(UA_ByteString_equal(&dst->trustedCertificates[i], &src->trustedCertificates[j]))
+                    isContained = true;
+            }
+            if(!isContained) {
+                UA_ByteString_copy(&dst->trustedCertificates[i], &newList[newListSize]);
+                newListSize += 1;
+            }
+            isContained = false;
+        }
+        if(newListSize < dst->trustedCertificatesSize) {
+            if(newListSize == 0) {
+                UA_free(newList);
+                newList = NULL;
+            } else {
+                retval = UA_Array_resize((void**)&newList, &oldListSize, newListSize, &UA_TYPES[UA_TYPES_BYTESTRING]);
+                if(retval != UA_STATUSCODE_GOOD) {
+                    UA_free(newList);
+                    return retval;
+                }
+            }
+        }
+        UA_Array_delete(dst->trustedCertificates, dst->trustedCertificatesSize, &UA_TYPES[UA_TYPES_BYTESTRING]);
+        dst->trustedCertificatesSize = 0;
+        dst->trustedCertificates = newList;
+        dst->trustedCertificatesSize = newListSize;
+    }
+
+    /* remove issuer certificates */
+    if(dst->issuerCertificatesSize > 0 && src->issuerCertificatesSize > 0) {
+        UA_ByteString *newList = (UA_ByteString*)UA_calloc(dst->issuerCertificatesSize, sizeof(UA_ByteString));
+        size_t newListSize = 0;
+        size_t oldListSize = dst->issuerCertificatesSize;
+        UA_Boolean isContained = false;
+        for(size_t i = 0; i < dst->issuerCertificatesSize; i++) {
+            for(size_t j = 0; j < src->issuerCertificatesSize; j++) {
+                if(UA_ByteString_equal(&dst->issuerCertificates[i], &src->issuerCertificates[j]))
+                    isContained = true;
+            }
+            if(!isContained) {
+                UA_ByteString_copy(&dst->issuerCertificates[i], &newList[newListSize]);
+                newListSize += 1;
+            }
+            isContained = false;
+        }
+        if(newListSize < dst->issuerCertificatesSize) {
+            if(newListSize == 0) {
+                UA_free(newList);
+                newList = NULL;
+            } else {
+                retval = UA_Array_resize((void**)&newList, &oldListSize, newListSize, &UA_TYPES[UA_TYPES_BYTESTRING]);
+                if(retval != UA_STATUSCODE_GOOD) {
+                    UA_free(newList);
+                    return retval;
+                }
+            }
+        }
+        UA_Array_delete(dst->issuerCertificates, dst->issuerCertificatesSize, &UA_TYPES[UA_TYPES_BYTESTRING]);
+        dst->issuerCertificatesSize = 0;
+        dst->issuerCertificates = newList;
+        dst->issuerCertificatesSize = newListSize;
+    }
+
+    /* remove trusted crls */
+    if(dst->trustedCrlsSize > 0 && src->trustedCrlsSize > 0) {
+        UA_ByteString *newList = (UA_ByteString*)UA_calloc(dst->trustedCrlsSize, sizeof(UA_ByteString));
+        size_t newListSize = 0;
+        size_t oldListSize = dst->trustedCrlsSize;
+        UA_Boolean isContained = false;
+        for(size_t i = 0; i < dst->trustedCrlsSize; i++) {
+            for(size_t j = 0; j < src->trustedCrlsSize; j++) {
+                if(UA_ByteString_equal(&dst->trustedCrls[i], &src->trustedCrls[j]))
+                    isContained = true;
+            }
+            if(!isContained) {
+                UA_ByteString_copy(&dst->trustedCrls[i], &newList[newListSize]);
+                newListSize += 1;
+            }
+            isContained = false;
+        }
+        if(newListSize < dst->trustedCrlsSize) {
+            if(newListSize == 0) {
+                UA_free(newList);
+                newList = NULL;
+            } else {
+                retval = UA_Array_resize((void**)&newList, &oldListSize, newListSize, &UA_TYPES[UA_TYPES_BYTESTRING]);
+                if(retval != UA_STATUSCODE_GOOD) {
+                    UA_free(newList);
+                    return retval;
+                }
+            }
+        }
+        UA_Array_delete(dst->trustedCrls, dst->trustedCrlsSize, &UA_TYPES[UA_TYPES_BYTESTRING]);
+        dst->trustedCrlsSize = 0;
+        dst->trustedCrls = newList;
+        dst->trustedCrlsSize = newListSize;
+    }
+
+    /* remove issuer crls */
+    if(dst->issuerCrlsSize > 0 && src->issuerCrlsSize > 0) {
+        UA_ByteString *newList = (UA_ByteString*)UA_calloc(dst->issuerCrlsSize, sizeof(UA_ByteString));
+        size_t newListSize = 0;
+        size_t oldListSize = dst->issuerCrlsSize;
+        UA_Boolean isContained = false;
+        for(size_t i = 0; i < dst->issuerCrlsSize; i++) {
+            for(size_t j = 0; j < src->issuerCrlsSize; j++) {
+                if(UA_ByteString_equal(&dst->issuerCrls[i], &src->issuerCrls[j]))
+                    isContained = true;
+            }
+            if(!isContained) {
+                UA_ByteString_copy(&dst->issuerCrls[i], &newList[newListSize]);
+                newListSize += 1;
+            }
+            isContained = false;
+        }
+        if(newListSize < dst->issuerCrlsSize) {
+            if(newListSize == 0) {
+                UA_free(newList);
+                newList = NULL;
+            } else {
+                retval = UA_Array_resize((void**)&newList, &oldListSize, newListSize, &UA_TYPES[UA_TYPES_BYTESTRING]);
+                if(retval != UA_STATUSCODE_GOOD) {
+                    UA_free(newList);
+                    return retval;
+                }
+            }
+        }
+        UA_Array_delete(dst->issuerCrls, dst->issuerCrlsSize, &UA_TYPES[UA_TYPES_BYTESTRING]);
+        dst->issuerCrlsSize = 0;
+        dst->issuerCrls = newList;
+        dst->issuerCrlsSize = newListSize;
+    }
+
+    return retval;
+}
+
+UA_UInt32
+UA_TrustListDataType_getSize(const UA_TrustListDataType *trustList) {
+    UA_UInt32 size = 0;
+    for(size_t i = 0; i < trustList->trustedCertificatesSize; i++) {
+        size += (UA_UInt32)trustList->trustedCertificates[i].length;
+    }
+    for(size_t i = 0; i < trustList->trustedCrlsSize; i++) {
+        size += (UA_UInt32)trustList->trustedCrls[i].length;
+    }
+    for(size_t i = 0; i < trustList->issuerCertificatesSize; i++) {
+        size += (UA_UInt32)trustList->issuerCertificates[i].length;
+    }
+    for(size_t i = 0; i < trustList->issuerCrlsSize; i++) {
+        size += (UA_UInt32)trustList->issuerCrls[i].length;
+    }
+    return size;
 }

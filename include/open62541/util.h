@@ -9,8 +9,7 @@
 #define UA_HELPER_H_
 
 #include <open62541/types.h>
-#include <open62541/types_generated.h>
-#include <open62541/types_generated_handling.h>
+#include <open62541/plugin/log.h>
 
 _UA_BEGIN_DECLS
 
@@ -28,15 +27,21 @@ typedef struct {
     UA_Duration max;
 } UA_DurationRange;
 
+typedef struct {
+    const UA_Logger *logger;
+} UA_EventFilterParserOptions;
+
 /**
  * Query Language Eventfilter
  * @param content eventfilter query
  * @param filter generated eventfilter
+ * @param options Can be NULL.
  */
 #ifdef UA_ENABLE_PARSING
 #ifdef UA_ENABLE_SUBSCRIPTIONS_EVENTS
 UA_EXPORT UA_StatusCode
-UA_EventFilter_parse(UA_EventFilter *filter, UA_ByteString *content);
+UA_EventFilter_parse(UA_EventFilter *filter, UA_ByteString content,
+                     UA_EventFilterParserOptions *options);
 #endif
 #endif
 
@@ -383,6 +388,30 @@ UA_constantTimeEqual(const void *ptr1, const void *ptr2, size_t length);
  * freed. */
 UA_EXPORT void
 UA_ByteString_memZero(UA_ByteString *bs);
+
+/**
+ * Trustlist Helpers
+ * -------------------- */
+
+/* Adds all of the certificates from the src trusted list to the dst trusted list. */
+UA_EXPORT UA_StatusCode
+UA_TrustListDataType_add(const UA_TrustListDataType *src, UA_TrustListDataType *dst);
+
+/* Removes all of the certificates from the dst trust list that are specified
+ * in the src trust list. */
+UA_EXPORT UA_StatusCode
+UA_TrustListDataType_remove(const UA_TrustListDataType *src, UA_TrustListDataType *dst);
+
+/* Checks if the certificate is present in the trust list.
+ * The mask parameter can be used to specify the part of the trust list to check. */
+UA_EXPORT UA_Boolean
+UA_TrustListDataType_contains(const UA_TrustListDataType *trustList,
+                              const UA_ByteString *certificate,
+                              UA_TrustListMasks mask);
+
+/* Returns the size of the TrustList in bytes. */
+UA_EXPORT UA_UInt32
+UA_TrustListDataType_getSize(const UA_TrustListDataType *trustList);
 
 _UA_END_DECLS
 

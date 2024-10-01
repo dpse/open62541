@@ -18,6 +18,7 @@
 #include "ua_server_internal.h"
 
 #include <check.h>
+#include <stdlib.h>
 #include "testing_clock.h"
 #include "../encryption/certificates.h"
 #include "thread_wrapper.h"
@@ -383,7 +384,8 @@ START_TEST(requestCurrentKeyWithFutureKeys) {
                   UA_StatusCode_name(response.results->statusCode));
     ck_assert_uint_eq(response.results->outputArgumentsSize, 5);
 
-    UA_SecurityGroup *sg = UA_SecurityGroup_findSGbyId(sksServer, sgNodeId);
+    UA_PubSubManager *psm = getPSM(sksServer);
+    UA_SecurityGroup *sg = UA_SecurityGroup_find(psm, sgNodeId);
     UA_Variant *output = response.results->outputArguments;
 
     UA_UInt32 firstTokenId = *(UA_UInt32 *) output[1].data;
@@ -425,7 +427,8 @@ START_TEST(requestCurrentKeyOnly) {
                   UA_StatusCode_name(response.results->statusCode));
     ck_assert_uint_eq(response.results->outputArgumentsSize, 5);
 
-    UA_SecurityGroup *sg = UA_SecurityGroup_findSGbyId(sksServer, sgNodeId);
+    UA_PubSubManager *psm = getPSM(sksServer);
+    UA_SecurityGroup *sg = UA_SecurityGroup_find(psm, sgNodeId);
     UA_Variant *output = response.results->outputArguments;
 
     UA_UInt32 firstTokenId = *(UA_UInt32 *)output[1].data;
@@ -467,7 +470,8 @@ START_TEST(requestPastKey) {
                   UA_StatusCode_name(response.results->statusCode));
     ck_assert_uint_eq(response.results->outputArgumentsSize, 5);
 
-    UA_SecurityGroup *sg = UA_SecurityGroup_findSGbyId(sksServer, sgNodeId);
+    UA_PubSubManager *psm = getPSM(sksServer);
+    UA_SecurityGroup *sg = UA_SecurityGroup_find(psm, sgNodeId);
     UA_Variant *output = response.results->outputArguments;
 
     UA_UInt32 firstTokenId = *(UA_UInt32 *)output[1].data;
@@ -507,7 +511,8 @@ START_TEST(requestUnknownStartingTokenId){
                   UA_StatusCode_name(response.results->statusCode));
     ck_assert_uint_eq(response.results->outputArgumentsSize, 5);
 
-    UA_SecurityGroup *sg = UA_SecurityGroup_findSGbyId(sksServer, sgNodeId);
+    UA_PubSubManager *psm = getPSM(sksServer);
+    UA_SecurityGroup *sg = UA_SecurityGroup_find(psm, sgNodeId);
     UA_Variant *output = response.results->outputArguments;
 
     UA_UInt32 firstTokenId = *(UA_UInt32 *)output[1].data;
@@ -547,7 +552,8 @@ START_TEST(requestMaxFutureKeys) {
                   UA_StatusCode_name(response.results->statusCode));
     ck_assert_uint_eq(response.results->outputArgumentsSize, 5);
 
-    UA_SecurityGroup *sg = UA_SecurityGroup_findSGbyId(sksServer, sgNodeId);
+    UA_PubSubManager *psm = getPSM(sksServer);
+    UA_SecurityGroup *sg = UA_SecurityGroup_find(psm, sgNodeId);
     UA_Variant *output = response.results->outputArguments;
 
     UA_UInt32 firstTokenId = *(UA_UInt32 *)output[1].data;

@@ -178,6 +178,12 @@ struct UA_ClientConfig {
     /* Certificate Verification Plugin */
     UA_CertificateGroup certificateVerification;
 
+#ifdef UA_ENABLE_ENCRYPTION
+    /* Limits for TrustList */
+    UA_UInt32 maxTrustListSize; /* in bytes, 0 => unlimited */
+    UA_UInt32 maxRejectedListSize; /* 0 => unlimited */
+#endif
+
     /* Available SecurityPolicies for Authentication. The policy defined by the
      * AccessControl is selected. If no policy is defined, the policy of the
      * secure channel is selected.*/
@@ -436,7 +442,7 @@ UA_Client_connectSecureChannelAsync(UA_Client *client, const char *endpointUrl) 
     cc->endpointUrl = UA_STRING_ALLOC(endpointUrl);
 
     /* Connect */
-    return __UA_Client_connect(client, false);
+    return __UA_Client_connect(client, true);
 })
 
 /* Connect to the server and create+activate a Session with the given username
